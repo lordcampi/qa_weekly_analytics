@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
@@ -113,21 +113,58 @@ class Settings(BaseModel):
 
         try:
             secrets = st.secrets
-            sched_enabled = str(secrets.get("SCHEDULER_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+
+            # Función auxiliar que prueba múltiples formas de acceso a secrets
+            def _read_secret(key: str, default: str = "") -> str:
+                """Lee un secreto de st.secrets probando varias formas de acceso."""
+                # 1) Acceso como clave de dict (más común en Streamlit Cloud)
+                try:
+                    val = secrets[key]
+                    return str(val)
+                except (KeyError, TypeError):
+                    pass
+
+                # 2) Acceso como atributo (AttrDict de Streamlit a veces funciona así)
+                try:
+                    val = getattr(secrets, key, None)
+                    if val is not None:
+                        return str(val)
+                except Exception:
+                    pass
+
+                # 3) Último recurso: .get() tradicional
+                return str(secrets.get(key, default))
+
+            sched_enabled = _read_secret("SCHEDULER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
             settings = cls(
-                DATA_URL=str(secrets.get("DATA_URL", "")),
-                TIMEZONE=str(secrets.get("TIMEZONE", "America/Bogota")),
-                HISTORIC_EXCEL_PATH=str(secrets.get("HISTORIC_EXCEL_PATH", "data/Registro_QA_Historico.xlsx")),
+                DATA_URL=_read_secret("DATA_URL"),
+                TIMEZONE=_read_secret("TIMEZONE", "America/Bogota"),
+                HISTORIC_EXCEL_PATH=_read_secret("HISTORIC_EXCEL_PATH", "data/Registro_QA_Historico.xlsx"),
                 SCHEDULER_ENABLED=sched_enabled,
-                SCHEDULER_CRON_DAY=str(secrets.get("SCHEDULER_CRON_DAY", "mon")),
-                SCHEDULER_CRON_HOUR=int(str(secrets.get("SCHEDULER_CRON_HOUR", "8"))),
-                SCHEDULER_CRON_MINUTE=int(str(secrets.get("SCHEDULER_CRON_MINUTE", "0"))),
+                SCHEDULER_CRON_DAY=_read_secret("SCHEDULER_CRON_DAY", "mon"),
+                SCHEDULER_CRON_HOUR=int(_read_secret("SCHEDULER_CRON_HOUR", "8")),
+                SCHEDULER_CRON_MINUTE=int(_read_secret("SCHEDULER_CRON_MINUTE", "0")),
             )
             logger.info("Settings cargados desde st.secrets")
             return settings
         except ValidationError as exc:
             summary = _summarize_validation_error(exc)
-            logger.error("Error validando Settings desde secrets", extra={"summary": summary})
-            raise SettingsError(f"Configuración inválida (secrets): {summary}") from exc
+            # Intenta mostrar las claves disponibles para diagnóstico
+            available_keys = []
+            try:
+                secrets = st.secrets
+                if hasattr(secrets, "keys"):
+                    available_keys = list(secrets.keys())
+                else:
+                    available_keys = [k for k in dir(secrets) if not k.startswith("_")]
+            except Exception:
+                pass
+            extra_info = f" (claves disponibles: {available_keys})" if available_keys else ""
+            logger.error(
+                "Error validando Settings desde secrets",
+                extra={"summary": summary, "available_keys": available_keys},
+            )
+            raise SettingsError(f"Configuración inválida (secrets): {summary}{extra_info}") from exc
         except Exception as exc:
             raise SettingsError(f"No se pudieron leer st.secrets: {exc}") from exc
