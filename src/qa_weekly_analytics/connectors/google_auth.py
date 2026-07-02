@@ -17,6 +17,43 @@ class GoogleAuthError(Exception):
     """Error durante el proceso de autenticación con Google APIs."""
 
 
+def get_service_account_credentials(
+    *,
+    service_account_info: dict,
+    scopes: Sequence[str],
+) -> Credentials:
+    """Obtiene credenciales de Service Account desde un dict (JSON key).
+
+    Útil para Streamlit Cloud, donde las credenciales se pasan vía
+    st.secrets en lugar de archivos locales.
+
+    Args:
+        service_account_info: Dict con el contenido del JSON key
+                              de la service account de Google Cloud.
+        scopes: Lista de scopes requeridos.
+
+    Returns:
+        Credenciales Google válidas.
+
+    Raises:
+        GoogleAuthError: Si falta información o el JSON es inválido.
+    """
+    from google.oauth2.service_account import Credentials as SACredentials
+
+    scopes_list = list(scopes)
+    try:
+        creds = SACredentials.from_service_account_info(
+            service_account_info,
+            scopes=scopes_list,
+        )
+        logger.info("Credenciales de Service Account cargadas correctamente")
+        return creds
+    except Exception as exc:
+        raise GoogleAuthError(
+            f"No se pudieron cargar credenciales de Service Account: {_safe_exc_message(exc)}"
+        ) from exc
+
+
 def _safe_exc_message(exc: Exception) -> str:
     """Devuelve un mensaje útil sin exponer tokens."""
     msg = str(exc).strip()

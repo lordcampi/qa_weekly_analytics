@@ -135,3 +135,46 @@ class Settings(BaseModel):
             summary = _summarize_validation_error(exc)
             logger.error("Error validando Settings", extra={"summary": summary})
             raise SettingsError(f"Configuración inválida: {summary}") from exc
+
+    @classmethod
+    def from_streamlit_secrets(cls) -> "Settings":
+        """Carga la configuración desde st.secrets (Streamlit Cloud).
+
+        Usa st.secrets como fuente de configuración, con los mismos nombres
+        que en .env pero accediendo vía st.secrets[key].
+
+        Returns:
+            Settings: Instancia validada.
+
+        Raises:
+            SettingsError: Si faltan variables requeridas o hay valores inválidos.
+        """
+        try:
+            import streamlit as st  # type: ignore[import-untyped]
+
+            secrets = st.secrets
+            try:
+                sched_enabled = str(secrets.get("SCHEDULER_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+                settings = cls(
+                    SHEET_ID=str(secrets.get("SHEET_ID", "")),
+                    SHEET_TAB=str(secrets.get("SHEET_TAB", "Operativa 2026")),
+                    SHEET_RANGE=str(secrets.get("SHEET_RANGE", "A1:G1619")),
+                    TIMEZONE=str(secrets.get("TIMEZONE", "America/Bogota")),
+                    HIST_TAB_RESUMEN=str(secrets.get("HIST_TAB_RESUMEN", TAB_RESUMEN)),
+                    HIST_TAB_POR_AGENTE=str(secrets.get("HIST_TAB_POR_AGENTE", TAB_POR_AGENTE)),
+                    HIST_TAB_POR_MOTIVO=str(secrets.get("HIST_TAB_POR_MOTIVO", TAB_POR_MOTIVO)),
+                    HIST_TAB_WOW=str(secrets.get("HIST_TAB_WOW", TAB_WOW)),
+                    HISTORIC_EXCEL_PATH=str(secrets.get("HISTORIC_EXCEL_PATH", "data/Registro_QA_Historico.xlsx")),
+                    SCHEDULER_ENABLED=sched_enabled,
+                    SCHEDULER_CRON_DAY=str(secrets.get("SCHEDULER_CRON_DAY", "mon")),
+                    SCHEDULER_CRON_HOUR=int(str(secrets.get("SCHEDULER_CRON_HOUR", "8"))),
+                    SCHEDULER_CRON_MINUTE=int(str(secrets.get("SCHEDULER_CRON_MINUTE", "0"))),
+                )
+                logger.info("Settings cargados desde st.secrets")
+                return settings
+            except ValidationError as exc:
+                summary = _summarize_validation_error(exc)
+                logger.error("Error validando Settings desde secrets", extra={"summary": summary})
+                raise SettingsError(f"Configuración inválida (secrets): {summary}") from exc
+        except ImportError:
+            raise SettingsError("Streamlit no está disponible") from None

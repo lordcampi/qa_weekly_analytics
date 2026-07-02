@@ -21,7 +21,11 @@ from qa_weekly_analytics.app.dashboard_logic import (  # noqa: E402
     resolve_selected_weeks,
 )
 from qa_weekly_analytics.app.kpi_cards import KpiCardsError, build_kpi_cards  # noqa: E402
-from qa_weekly_analytics.connectors.google_auth import GoogleAuthError, get_credentials  # noqa: E402
+from qa_weekly_analytics.connectors.google_auth import (  # noqa: E402
+    GoogleAuthError,
+    get_credentials,
+    get_service_account_credentials,
+)
 from qa_weekly_analytics.connectors.sheets_reader import SheetsReadError, read_range  # noqa: E402
 from qa_weekly_analytics.domain.date_ranges import (  # noqa: E402
     DateRange,
@@ -59,14 +63,29 @@ def _setup_logging() -> None:
 
 @st.cache_data(show_spinner=True)
 def _load_and_clean_data(sheet_id: str, sheet_tab: str, sheet_range: str) -> tuple[pd.DataFrame, object]:
-    credentials_path = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", ".secrets/credentials.json")).resolve()
-    token_path = Path(os.getenv("GOOGLE_TOKEN_PATH", ".secrets/token.json")).resolve()
+    """Carga datos desde Google Sheets, usando service account o OAuth según entorno."""
     try:
-        creds = get_credentials(
-            scopes=APP_GOOGLE_SCOPES,
-            credentials_path=credentials_path,
-            token_path=token_path,
-        )
+        # Streamlit Cloud: detecta service account en st.secrets
+        try:
+            gcp_sa = st.secrets.get("gcp_service_account")
+        except Exception:
+            gcp_sa = None
+
+        if gcp_sa and isinstance(gcp_sa, dict) and gcp_sa.get("client_email"):
+            creds = get_service_account_credentials(
+                service_account_info=gcp_sa,
+                scopes=APP_GOOGLE_SCOPES,
+            )
+        else:
+            # Local: OAuth Installed App con archivos locales
+            credentials_path = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", ".secrets/credentials.json")).resolve()
+            token_path = Path(os.getenv("GOOGLE_TOKEN_PATH", ".secrets/token.json")).resolve()
+            creds = get_credentials(
+                scopes=APP_GOOGLE_SCOPES,
+                credentials_path=credentials_path,
+                token_path=token_path,
+            )
+
         sheet_data = read_range(credentials=creds, sheet_id=sheet_id, sheet_tab=sheet_tab, sheet_range=sheet_range)
         valid_df, report = clean_and_validate_rows(sheet_data.df, source_row_start=2, max_examples=10)
         return valid_df, report
@@ -420,9 +439,14 @@ def main() -> None:
     st.set_page_config(page_title="QA Weekly Analytics", layout="wide")
     st.title("QA Weekly Analytics — Dashboard")
 
-    # --- Settings ---
+    # --- Settings (auto-detecta Streamlit Cloud vs local) ---
     try:
-        settings = Settings.from_env()
+        # Streamlit Cloud: usa st.secrets
+        try:
+            _ = st.secrets.get("SHEET_ID")
+            settings = Settings.from_streamlit_secrets()
+        except Exception:
+            settings = Settings.from_env()
     except SettingsError as exc:
         st.error(f"Configuración inválida: {exc}")
         st.stop()
