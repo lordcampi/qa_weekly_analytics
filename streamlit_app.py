@@ -18,19 +18,32 @@ except Exception as exc:
     _import_error = f"❌ Error al importar la app:\n\n{traceback.format_exc()}"
     main = None  # type: ignore[assignment]
 
+def _show_error(title: str, message: str) -> None:
+    """Muestra un error en la UI de Streamlit o en stderr si no está disponible."""
+    try:
+        import streamlit as st
+
+        st.set_page_config(page_title="QA Weekly — Error", layout="wide")
+        st.title(title)
+        st.error(message)
+    except Exception:
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     if _import_error is not None:
-        # Mostrar el error en Streamlit si está disponible, si no en consola
-        try:
-            import streamlit as st
-
-            st.set_page_config(page_title="QA Weekly — Error", layout="wide")
-            st.title("QA Weekly Analytics — Error de arranque")
-            st.error("No se pudo iniciar la aplicación. Revisa el error a continuación:")
-            st.code(_import_error, language="text")
-            st.caption("Verifica que todas las dependencias de requirements.txt estén instaladas correctamente.")
-        except Exception:
-            print(_import_error, file=sys.stderr)
-            sys.exit(1)
+        _show_error(
+            "QA Weekly Analytics — Error de arranque",
+            f"No se pudo iniciar la aplicación. Revisa el error a continuación:\n\n{_import_error}\n\n"
+            "Verifica que todas las dependencias de requirements.txt estén instaladas correctamente.",
+        )
     else:
-        main()
+        assert main is not None  # garantizado por el else
+        try:
+            main()
+        except Exception:
+            _show_error(
+                "QA Weekly Analytics — Error en ejecución",
+                f"Error durante la ejecución de la app:\n\n{traceback.format_exc()}",
+            )
